@@ -1,0 +1,79 @@
+version: "3.7"
+services:
+  jobmanager:
+    image: flink:1.9.3-scala_2.12
+    command: "jobmanager.sh start-foreground"
+    ports:
+      - 8081:8081
+      - 9249:9249
+    volumes:
+      - ./conf:/opt/flink/conf
+      - flink-checkpoints-directory:/tmp/flink-checkpoints-directory
+      - /tmp/flink-savepoints-directory:/tmp/flink-savepoints-directory
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=jobmanager
+  taskmanager:
+    image: flink-metrics:latest
+    depends_on:
+      - jobmanager
+    command: "taskmanager.sh start-foreground"
+    volumes:
+      - ./conf:/opt/flink/conf
+      - flink-checkpoints-directory:/tmp/flink-checkpoints-directory
+      - /tmp/flink-savepoints-directory:/tmp/flink-savepoints-directory
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=jobmanager
+    ports:
+      - 9249
+  zookeeper:
+    image: wurstmeister/zookeeper:3.4.6
+    ports:
+      - 2181:2181
+  kafka:
+    image: wurstmeister/kafka:2.12-2.0.1
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: INSIDE://:9092,OUTSIDE://localhost:9094
+      KAFKA_LISTENERS: INSIDE://:9092,OUTSIDE://0.0.0.0:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INSIDE:PLAINTEXT,OUTSIDE:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INSIDE
+      KAFKA_CREATE_TOPICS: "raw:2:1, items:2:1, users:2:1, input:2:1, output:2:1, audit:2:1, weight:2:1, grad:2:1, query:2:1, preds:2:1, metric:2:1, cj-ctr:2:1, item-feature:2:1, cj-story:2:1, cj-user-feature:2:1, common-user-feature:2:1"
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+    ports:
+      - 9094:9094
+  predict-job:
+    image: flink-jobs:latest
+    depends_on:
+      - kafka
+      - jobmanager
+      - taskmanager
+    command: "flink run -c org.made.PredictJob -d -p 2 /opt/made-simple-bant-assembly-0.1-SNAPSHOT.jar --num-predictions 5"
+    volumes:
+      - ./conf:/opt/flink/conf
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=jobmanager
+  generator-job:
+    image: flink-jobs:latest
+    depends_on:
+      - kafka
+      - jobmanager
+      - taskmanager
+    command: "flink run -c org.made.GeneratorJob -d -p 2 /opt/made-simple-bant-assembly-0.1-SNAPSHOT.jar --num-predictions 5"
+    volumes:
+      - ./conf:/opt/flink/conf
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=jobmanager
+  update-job:
+    image: flink-jobs:latest
+    depends_on:
+      - kafka
+      - jobmanager
+      - taskmanager
+    command: "flink run -c org.made.UpdateJob -d -p 2 /opt/made-simple-bant-assembly-0.1-SNAPSHOT.jar"
+    volumes:
+      - ./conf:/opt/flink/conf
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=jobmanager
+
+
+volumes:
+  flink-checkpoints-directory:
